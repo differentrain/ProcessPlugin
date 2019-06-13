@@ -974,7 +974,7 @@ namespace System.Diagnostics.ProcessExtensions
         /// Allocates memory in the target process with the specified size.
         /// </summary>
         /// <param name="size">Memory size.</param>
-        public void Allocate(int size) => Allocate(IntPtr.Zero, size);
+        public IntPtr Allocate(int size) => Allocate(IntPtr.Zero, size);
 
         /// <summary>
         /// Allocates memory in the target process, which is located at the specified address,  with the specified size.
