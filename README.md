@@ -1,5 +1,5 @@
 # ProcessPlugin
-A .NET Framewokr project for the System.Diagnostics.Process class enhancement. 
+A .NET Framework project for the System.Diagnostics.Process class enhancement. 
 
 This repo only have a single file，hence there is no need to release any boring binary file with your project.
 
