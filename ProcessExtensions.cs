@@ -1,4 +1,4 @@
-﻿/*
+/*
  MIT License
 
 Copyright (c) 2019 differentrain
@@ -63,7 +63,7 @@ namespace System.Diagnostics.ProcessExtensions
 
         #region properties & fields
 
-        private readonly IntPtr _intPtrMax;
+        internal readonly IntPtr _maxMemory;
 
         private readonly bool _leaveOpen;
 
@@ -85,16 +85,17 @@ namespace System.Diagnostics.ProcessExtensions
         /// <summary>
         /// Gets the main window class name of the process.
         /// </summary>
-        public string MainWindowClassName => Utilities.GetWindowClassByHandle(BaseProcess);
+        public string MainWindowClassName => InnerUtilities.GetWindowClassByHandle(BaseProcess);
 
         /// <summary>
         /// Gets a value indicates that whether the process opened with <see cref="Process"/> is an 64 bit process.
         /// </summary>
         public bool Is64BitProcess => Environment.Is64BitProcess ?
-                                          Utilities.NativeMethods.IsWow64Process(new HandleRef(BaseProcess, BaseProcess.Handle), out var isWow) && !isWow ?
+                                          InnerUtilities.NativeMethods.IsWow64Process(new HandleRef(BaseProcess, BaseProcess.Handle), out var isWow) && !isWow ?
                                                true :
                                                false :
                                           false;
+
 
         #endregion
 
@@ -104,7 +105,7 @@ namespace System.Diagnostics.ProcessExtensions
         /// <summary>
         /// Static constructor, meant to check environment.
         /// </summary>
-        [CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1065:DoNotRaiseExceptionsInUnexpectedLocations")]
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1065:DoNotRaiseExceptionsInUnexpectedLocations")]
         static ProcessPlugin()
         {
             if (Environment.Is64BitOperatingSystem && !Environment.Is64BitProcess)
@@ -127,10 +128,12 @@ namespace System.Diagnostics.ProcessExtensions
         public ProcessPlugin(Process process, bool leaveOpen)
         {
             BaseProcess = process ?? throw new ArgumentNullException("process");
-            AllocatedMemories = new AllocatedMemoryCollection(process);
             _leaveOpen = leaveOpen;
+            _maxMemory = Is64BitProcess ?
+                        InnerUtilities.SystemInfo.MaximumApplicationAddress :
+                        new IntPtr((int)(InnerUtilities.SystemInfo.MaximumApplicationAddress.ToInt64() & 0x7FFFFFFF));
+            AllocatedMemories = new AllocatedMemoryCollection(this);
             Advanced = new AdvancedFeature(this);
-            _intPtrMax = Is64BitProcess ? new IntPtr(long.MaxValue) : new IntPtr(int.MaxValue);
         }
         #endregion
 
@@ -141,7 +144,7 @@ namespace System.Diagnostics.ProcessExtensions
         /// </summary>
         /// <param name="moduleName">The module name, include the file name extension.</param>
         /// <returns></returns>
-        public ProcessModuleAlter GetModuleByName(string moduleName) => Utilities.GetModuleByName(BaseProcess, moduleName);
+        public ProcessModuleAlter GetModuleByName(string moduleName) => InnerUtilities.GetModuleByName(BaseProcess, moduleName);
 
         /// <summary>
         /// Read a value of <typeparamref name="T"/> type from the specified address in process.
@@ -149,7 +152,7 @@ namespace System.Diagnostics.ProcessExtensions
         /// <typeparam name="T">The unmanged type.</typeparam>
         /// <param name="address">The address.</param>
         /// <returns><typeparamref name="T"/></returns>
-        public T ReadData<T>(IntPtr address) where T : unmanaged => Utilities.ReadData<T>(BaseProcess, address);
+        public T ReadData<T>(IntPtr address) where T : unmanaged => InnerUtilities.ReadData<T>(BaseProcess, address);
         /// <summary>
         /// Read a sequence of values of <typeparamref name="T"/> type from the specified address in process.
         /// </summary>
@@ -157,7 +160,7 @@ namespace System.Diagnostics.ProcessExtensions
         /// <param name="address">The address.</param>
         /// <param name="count">The number of elements in the <typeparamref name="T"/> sequence.</param>
         /// <returns></returns>
-        public T[] ReadData<T>(IntPtr address, int count) where T : unmanaged => Utilities.ReadData<T>(BaseProcess, address, count);
+        public T[] ReadData<T>(IntPtr address, int count) where T : unmanaged => InnerUtilities.ReadData<T>(BaseProcess, address, count);
         /// <summary>
         ///  Read a sequence of <typeparamref name="T"/> type from the specified address in process.
         /// </summary>
@@ -166,7 +169,7 @@ namespace System.Diagnostics.ProcessExtensions
         /// <param name="data">The <typeparamref name="T"/>sequence to store the read values.</param>
         /// <param name="startIndex">The start index of <paramref name="data"/>.</param>
         /// <param name="count">The count of <typeparamref name="T"/> type date to be read.</param>
-        public void ReadData<T>(IntPtr address, T[] data, int startIndex, int count) where T : unmanaged => Utilities.ReadData<T>(BaseProcess, address, data, startIndex, count);
+        public void ReadData<T>(IntPtr address, T[] data, int startIndex, int count) where T : unmanaged => InnerUtilities.ReadData<T>(BaseProcess, address, data, startIndex, count);
 
         /// <summary>
         /// Writes  <typeparamref name="T"/> type data to the specified address in process.
@@ -174,7 +177,7 @@ namespace System.Diagnostics.ProcessExtensions
         /// <typeparam name="T">The unmanged type.</typeparam>
         /// <param name="address">The address.</param>
         /// <param name="data">The date to be written.</param>
-        public void WriteData<T>(IntPtr address, params T[] data) where T : unmanaged => Utilities.WriteData<T>(BaseProcess, address, data);
+        public void WriteData<T>(IntPtr address, params T[] data) where T : unmanaged => InnerUtilities.WriteData<T>(BaseProcess, address, data);
 
         /// <summary>
         ///  Write a sequence of <typeparamref name="T"/> type from the specified address in process.
@@ -184,28 +187,28 @@ namespace System.Diagnostics.ProcessExtensions
         /// <param name="data">The <typeparamref name="T"/>sequence to be wirtten.</param>
         /// <param name="startIndex">The start index of <paramref name="data"/>.</param>
         /// <param name="count">The count of <typeparamref name="T"/> type date to be written in <paramref name="data"/>.</param>
-        public void WriteData<T>(IntPtr address, T[] data, int startIndex, int count) where T : unmanaged => Utilities.WriteData<T>(BaseProcess, address, data, startIndex, count);
+        public void WriteData<T>(IntPtr address, T[] data, int startIndex, int count) where T : unmanaged => InnerUtilities.WriteData<T>(BaseProcess, address, data, startIndex, count);
 
         /// <summary>
         /// Searches the specified bytes in process memory. <see cref="IntPtr.Zero"/> means failed.
         /// </summary>
         /// <param name="pattern">The bytes to be searched.</param>
         /// <returns></returns>
-        public IntPtr ScanBytes(byte[] pattern) => ScanBytes(pattern, IntPtr.Zero, _intPtrMax, MemoryProtectionFilter.ExecuteRead);
+        public IntPtr ScanBytes(byte[] pattern) => ScanBytes(pattern, IntPtr.Zero, _maxMemory, MemoryProtectionFilter.ExecuteRead);
         /// <summary>
         /// Searches the specified bytes in process memory, with the specified filter. <see cref="IntPtr.Zero"/> means failed.
         /// </summary>
         /// <param name="pattern">The bytes to be searched.</param>
         /// <param name="filter">The filter.</param>
         /// <returns></returns>
-        public IntPtr ScanBytes(byte[] pattern, MemoryProtectionFilter filter) => ScanBytes(pattern, IntPtr.Zero, _intPtrMax, filter);
+        public IntPtr ScanBytes(byte[] pattern, MemoryProtectionFilter filter) => ScanBytes(pattern, IntPtr.Zero, _maxMemory, filter);
         /// <summary>
         /// Searches the specified bytes in process memory, with the specified start address. <see cref="IntPtr.Zero"/> means failed.
         /// </summary>
         /// <param name="pattern">The bytes to be searched.</param>
         /// <param name="addressStart">The start address.</param>
         /// <returns></returns>
-        public IntPtr ScanBytes(byte[] pattern, IntPtr addressStart) => ScanBytes(pattern, addressStart, _intPtrMax, MemoryProtectionFilter.ExecuteRead);
+        public IntPtr ScanBytes(byte[] pattern, IntPtr addressStart) => ScanBytes(pattern, addressStart, _maxMemory, MemoryProtectionFilter.ExecuteRead);
         /// <summary>
         /// Searches the specified bytes in process memory, with the specified search scope. <see cref="IntPtr.Zero"/> means failed.
         /// </summary>
@@ -222,7 +225,7 @@ namespace System.Diagnostics.ProcessExtensions
         /// <param name="addressEnd">The end address.</param>
         /// <param name="filter">The filter.</param>
         /// <returns></returns>
-        public IntPtr ScanBytes(byte[] pattern, IntPtr addressStart, IntPtr addressEnd, MemoryProtectionFilter filter) => Utilities.ScanByteArray(BaseProcess, pattern, addressStart, addressEnd, filter);
+        public IntPtr ScanBytes(byte[] pattern, IntPtr addressStart, IntPtr addressEnd, MemoryProtectionFilter filter) => InnerUtilities.ScanByteArray(BaseProcess, pattern, addressStart, addressEnd, filter);
 
         /// <summary>
         /// Async version. The result also can be get form <paramref name="callBack"/>.
@@ -230,7 +233,7 @@ namespace System.Diagnostics.ProcessExtensions
         /// <param name="pattern"></param>
         /// <param name="callBack"></param>
         /// <returns></returns>
-        public async Task<IntPtr> ScanBytesAsync(byte[] pattern, Action<IntPtr> callBack = null) => await ScanBytesAsync(pattern, IntPtr.Zero, _intPtrMax, MemoryProtectionFilter.ExecuteRead, callBack);
+        public async Task<IntPtr> ScanBytesAsync(byte[] pattern, Action<IntPtr> callBack = null) => await ScanBytesAsync(pattern, IntPtr.Zero, _maxMemory, MemoryProtectionFilter.ExecuteRead, callBack);
         /// <summary>
         /// Async version. The result also can be get form <paramref name="callBack"/>.
         /// </summary>
@@ -238,7 +241,7 @@ namespace System.Diagnostics.ProcessExtensions
         /// <param name="filter"></param>
         /// <param name="callBack"></param>
         /// <returns></returns>
-        public async Task<IntPtr> ScanBytesAsync(byte[] pattern, MemoryProtectionFilter filter, Action<IntPtr> callBack = null) => await ScanBytesAsync(pattern, IntPtr.Zero, _intPtrMax, filter, callBack);
+        public async Task<IntPtr> ScanBytesAsync(byte[] pattern, MemoryProtectionFilter filter, Action<IntPtr> callBack = null) => await ScanBytesAsync(pattern, IntPtr.Zero, _maxMemory, filter, callBack);
         /// <summary>
         /// Async version. The result also can be get form <paramref name="callBack"/>.
         /// </summary>
@@ -246,7 +249,7 @@ namespace System.Diagnostics.ProcessExtensions
         /// <param name="addressStart"></param>
         /// <param name="callBack"></param>
         /// <returns></returns>
-        public async Task<IntPtr> ScanBytesAsync(byte[] pattern, IntPtr addressStart, Action<IntPtr> callBack = null) => await ScanBytesAsync(pattern, addressStart, _intPtrMax, MemoryProtectionFilter.ExecuteRead, callBack);
+        public async Task<IntPtr> ScanBytesAsync(byte[] pattern, IntPtr addressStart, Action<IntPtr> callBack = null) => await ScanBytesAsync(pattern, addressStart, _maxMemory, MemoryProtectionFilter.ExecuteRead, callBack);
         /// <summary>
         /// Async version. The result also can be get form <paramref name="callBack"/>.
         /// </summary>
@@ -267,7 +270,7 @@ namespace System.Diagnostics.ProcessExtensions
         /// <returns></returns>
         public async Task<IntPtr> ScanBytesAsync(byte[] pattern, IntPtr addressStart, IntPtr addressEnd, MemoryProtectionFilter filter, Action<IntPtr> callBack = null) => await Task.Run(() =>
         {
-            var result = Utilities.ScanByteArray(BaseProcess, pattern, addressStart, addressEnd, filter);
+            var result = InnerUtilities.ScanByteArray(BaseProcess, pattern, addressStart, addressEnd, filter);
             callBack?.Invoke(result);
             return result;
         });
@@ -277,21 +280,21 @@ namespace System.Diagnostics.ProcessExtensions
         /// </summary>
         /// <param name="address">The address of the function.</param>
         /// <returns></returns>
-        public RemoteCallState CallRemoteFunction(IntPtr address) => CallRemoteFunction(address, Utilities.INFINITE_INT);
+        public RemoteCallState CallRemoteFunction(IntPtr address) => CallRemoteFunction(address, InnerUtilities.INFINITE_INT);
         /// <summary>
         /// Calls the remote function in target process.
         /// </summary>
         /// <param name="address">The address of the function.</param>
         /// <param name="timeOut">Timeout, in ms.</param>
         /// <returns></returns>
-        public RemoteCallState CallRemoteFunction(IntPtr address, int timeOut) => Utilities.CallRemoteFunc(BaseProcess, address, timeOut);
+        public RemoteCallState CallRemoteFunction(IntPtr address, int timeOut) => InnerUtilities.CallRemoteFunc(BaseProcess, address, timeOut);
         /// <summary>
         /// Calls the remote function in target process.
         /// </summary>
         /// <param name="address">The address of the function.</param>
         /// <param name="callBack">call back.</param>
         /// <returns></returns>
-        public async Task<RemoteCallState> CallRemoteFunctionAsync(IntPtr address, Action<RemoteCallState> callBack = null) => await CallRemoteFunctionAsync(address, Utilities.INFINITE_INT, callBack);
+        public async Task<RemoteCallState> CallRemoteFunctionAsync(IntPtr address, Action<RemoteCallState> callBack = null) => await CallRemoteFunctionAsync(address, InnerUtilities.INFINITE_INT, callBack);
         /// <summary>
         /// Calls the remote function in target process.
         /// </summary>
@@ -320,8 +323,7 @@ namespace System.Diagnostics.ProcessExtensions
         /// <param name="windowName">Main window name.</param>
         /// <param name="windowClass">Main window class name.</param>
         /// <returns></returns>
-        public static Process GetProcessByWindow(string windowName, string windowClass) => Utilities.GetProcessByWindow(windowName, windowClass);
-
+        public static Process GetProcessByWindow(string windowName, string windowClass) => InnerUtilities.GetProcessByWindow(windowName, windowClass);
 
         #endregion
 
@@ -337,25 +339,21 @@ namespace System.Diagnostics.ProcessExtensions
             {
                 if (disposing)
                 {
-                    if (!_leaveOpen && BaseProcess != null)
+                    if (BaseProcess != null)
                     {
-                        BaseProcess.Dispose();
+                        AllocatedMemories.Dispose();
+                        Advanced.Dispose();
+                        if (!_leaveOpen)
+                        {
+                            BaseProcess.Dispose();
+                        }
                     }
-                    AllocatedMemories.Dispose();
-                    Advanced.Dispose();
                 }
                 Advanced = null;
                 AllocatedMemories = null;
                 BaseProcess = null;
                 _disposed = true;
             }
-        }
-        /// <summary>
-        /// destructor.
-        /// </summary>
-        ~ProcessPlugin()
-        {
-            try { Dispose(false); } catch { }
         }
 
         /// <summary>
@@ -364,7 +362,6 @@ namespace System.Diagnostics.ProcessExtensions
         public void Dispose()
         {
             Dispose(true);
-            GC.SuppressFinalize(this);
         }
         #endregion
 
@@ -468,7 +465,7 @@ namespace System.Diagnostics.ProcessExtensions
 
                     if (value)
                     {
-                        _allocMem = Utilities.AllocMemory(_plugin.BaseProcess, IntPtr.Zero, 4096);
+                        _allocMem = InnerUtilities.AllocMemory(_plugin, IntPtr.Zero, 4096);
 
 
                         byte[] asmCodes;
@@ -655,13 +652,13 @@ namespace System.Diagnostics.ProcessExtensions
                         }
                         catch
                         {
-                            Utilities.ReleaseMemory(_plugin.BaseProcess, _allocMem);
+                            InnerUtilities.ReleaseMemory(_plugin.BaseProcess, _allocMem);
                             _injected = false;
                         }
                     }
                     else
                     {
-                        Utilities.ReleaseMemory(_plugin.BaseProcess, _allocMem);
+                        InnerUtilities.ReleaseMemory(_plugin.BaseProcess, _allocMem);
                         _injected = false;
                     }
                 }
@@ -902,7 +899,7 @@ namespace System.Diagnostics.ProcessExtensions
                 {
                     str += '\0';
                 }
-                var result =new byte[64];
+                var result = new byte[64];
                 try
                 {
                     code.GetBytes(str, 0, str.Length, result, 0);
@@ -935,159 +932,160 @@ namespace System.Diagnostics.ProcessExtensions
         }
 
 
+
+        /// <summary>
+        /// Represents the allcated memories in the target process.
+        /// </summary>
+        public sealed class AllocatedMemoryCollection : IEnumerable<IntPtr>
+        {
+            #region properties & fields
+
+            private ProcessPlugin _plugin;
+
+            private List<IntPtr> _list;
+
+            /// <summary>
+            /// Gets the pointer of allocated memory by index.
+            /// </summary>
+            /// <param name="index">The index</param>
+            /// <returns></returns>
+            public IntPtr this[int index] => _list[index];
+
+            /// <summary>
+            /// Gets a value indicates the count of allocated memories.
+            /// </summary>
+            public int Count => _list.Count;
+
+            #endregion
+
+            internal AllocatedMemoryCollection(ProcessPlugin plugin)
+            {
+                _plugin = plugin;
+                _list = new List<IntPtr>();
+            }
+
+            #region methods
+
+            /// <summary>
+            /// Allocates memory in the target process with the specified size.
+            /// </summary>
+            /// <param name="size">Memory size.</param>
+            public IntPtr Allocate(int size) => Allocate(IntPtr.Zero, size);
+
+            /// <summary>
+            /// Allocates memory in the target process, which is located at the specified address,  with the specified size.
+            /// </summary>
+            /// <param name="expectedAddress">The location in where the memory should be allocated.</param>
+            /// <param name="size">Memory size.</param>
+            /// <returns></returns>
+            public IntPtr Allocate(IntPtr expectedAddress, int size)
+            {
+                var result = InnerUtilities.AllocMemory(_plugin, expectedAddress, size);
+                _list.Add(result);
+                return result;
+            }
+
+            /// <summary>
+            /// Free all allocated memories.
+            /// </summary>
+            public void FreeAll()
+            {
+                foreach (var item in _list)
+                {
+                    InnerUtilities.ReleaseMemory(_plugin.BaseProcess, item);
+                }
+                _list.Clear();
+            }
+
+            /// <summary>
+            /// Indicates that whether the pointer is exist.
+            /// </summary>
+            /// <param name="memAddress"></param>
+            /// <returns></returns>
+            public bool Contains(IntPtr memAddress) => _list.Contains(memAddress);
+
+            /// <summary>
+            /// Gets the index of the specified memory.
+            /// </summary>
+            /// <param name="memAddress">The pointer to the memory.</param>
+            /// <returns></returns>
+            public int IndexOf(IntPtr memAddress) => _list.IndexOf(memAddress);
+
+            /// <summary>
+            /// Free the memory by it's pointer.
+            /// </summary>
+            /// <param name="memAddress">The specified pointer to be release.</param>
+            /// <returns></returns>
+            public bool Free(IntPtr memAddress)
+            {
+                try
+                {
+                    return _list.Remove(memAddress);
+                }
+                finally
+                {
+                    InnerUtilities.ReleaseMemory(_plugin.BaseProcess, memAddress);
+
+                }
+            }
+
+            /// <summary>
+            /// Free the memory by the specified index.
+            /// </summary>
+            /// <param name="index">The specified index.</param>
+            public void FreeAt(int index)
+            {
+                var addr = _list[index];
+                _list.RemoveAt(index);
+                InnerUtilities.ReleaseMemory(_plugin.BaseProcess, addr);
+            }
+
+            /// <summary>
+            /// Enumerator.
+            /// </summary>
+            /// <returns></returns>
+            public IEnumerator<IntPtr> GetEnumerator() => _list.GetEnumerator();
+
+            /// <summary>
+            /// Enumerator.
+            /// </summary>
+            /// <returns></returns>
+            IEnumerator IEnumerable.GetEnumerator() => _list.GetEnumerator();
+
+            #endregion
+
+            #region Internal IDisposable Support
+
+            private bool disposedValue = false;
+
+            ~AllocatedMemoryCollection()
+            {
+                Dispose();
+            }
+
+            internal void Dispose()
+            {
+                try
+                {
+                    if (!disposedValue) FreeAll();
+                }
+                catch { }
+                finally
+                {
+                    _list = null;
+                    _plugin = null;
+                    disposedValue = true;
+                    GC.SuppressFinalize(this);
+                }
+            }
+
+
+            #endregion
+
+
+        }
     }
 
-    /// <summary>
-    /// Represents the allcated memories in the target process.
-    /// </summary>
-    public sealed class AllocatedMemoryCollection : IEnumerable<IntPtr>
-    {
-        #region properties & fields
-
-        private Process _process;
-
-        private List<IntPtr> _list;
-
-        /// <summary>
-        /// Gets the pointer of allocated memory by index.
-        /// </summary>
-        /// <param name="index">The index</param>
-        /// <returns></returns>
-        public IntPtr this[int index] => _list[index];
-
-        /// <summary>
-        /// Gets a value indicates the count of allocated memories.
-        /// </summary>
-        public int Count => _list.Count;
-
-        #endregion
-
-        internal AllocatedMemoryCollection(Process process)
-        {
-            _process = process;
-            _list = new List<IntPtr>();
-        }
-
-        #region methods
-
-        /// <summary>
-        /// Allocates memory in the target process with the specified size.
-        /// </summary>
-        /// <param name="size">Memory size.</param>
-        public IntPtr Allocate(int size) => Allocate(IntPtr.Zero, size);
-
-        /// <summary>
-        /// Allocates memory in the target process, which is located at the specified address,  with the specified size.
-        /// </summary>
-        /// <param name="expectedAddress">The location in where the memory should be allocated.</param>
-        /// <param name="size">Memory size.</param>
-        /// <returns></returns>
-        public IntPtr Allocate(IntPtr expectedAddress, int size)
-        {
-            var result = Utilities.AllocMemory(_process, expectedAddress, size);
-            _list.Add(result);
-            return result;
-        }
-
-        /// <summary>
-        /// Free all allocated memories.
-        /// </summary>
-        public void FreeAll()
-        {
-            foreach (var item in _list)
-            {
-                Utilities.ReleaseMemory(_process, item);
-            }
-            _list.Clear();
-        }
-
-        /// <summary>
-        /// Indicates that whether the pointer is exist.
-        /// </summary>
-        /// <param name="memAddress"></param>
-        /// <returns></returns>
-        public bool Contains(IntPtr memAddress) => _list.Contains(memAddress);
-
-        /// <summary>
-        /// Gets the index of the specified memory.
-        /// </summary>
-        /// <param name="memAddress">The pointer to the memory.</param>
-        /// <returns></returns>
-        public int IndexOf(IntPtr memAddress) => _list.IndexOf(memAddress);
-
-        /// <summary>
-        /// Free the memory by it's pointer.
-        /// </summary>
-        /// <param name="memAddress">The specified pointer to be release.</param>
-        /// <returns></returns>
-        public bool Free(IntPtr memAddress)
-        {
-            try
-            {
-                return _list.Remove(memAddress);
-            }
-            finally
-            {
-                Utilities.ReleaseMemory(_process, memAddress);
-
-            }
-        }
-
-        /// <summary>
-        /// Free the memory by the specified index.
-        /// </summary>
-        /// <param name="index">The specified index.</param>
-        public void FreeAt(int index)
-        {
-            var addr = _list[index];
-            _list.RemoveAt(index);
-            Utilities.ReleaseMemory(_process, addr);
-        }
-
-        /// <summary>
-        /// Enumerator.
-        /// </summary>
-        /// <returns></returns>
-        public IEnumerator<IntPtr> GetEnumerator() => _list.GetEnumerator();
-
-        /// <summary>
-        /// Enumerator.
-        /// </summary>
-        /// <returns></returns>
-        IEnumerator IEnumerable.GetEnumerator() => _list.GetEnumerator();
-
-        #endregion
-
-        #region Internal IDisposable Support
-
-        private bool disposedValue = false;
-
-        ~AllocatedMemoryCollection()
-        {
-            Dispose();
-        }
-
-        internal void Dispose()
-        {
-            try
-            {
-                if (!disposedValue) FreeAll();
-            }
-            catch { }
-            finally
-            {
-                _list = null;
-                _process = null;
-                disposedValue = true;
-                GC.SuppressFinalize(this);
-            }
-        }
-
-
-        #endregion
-
-
-    }
 
     /// <summary>
     /// Represents which protection type of memory should be searched.
@@ -1196,7 +1194,7 @@ namespace System.Diagnostics.ProcessExtensions
             }
         }
 
-        internal ProcessModuleAlter(string baseName, string fileName, Utilities.ModuleInfo moduleInfo)
+        internal ProcessModuleAlter(string baseName, string fileName, InnerUtilities.ModuleInfo moduleInfo)
         {
             BaseAddress = moduleInfo.BaseOfDll;
             EntryPointAddress = moduleInfo.EntryPoint;
@@ -1234,7 +1232,7 @@ namespace System.Diagnostics.ProcessExtensions
         {
             using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read))
             {
-                using (var xxh = new Utilities.XXHash32())
+                using (var xxh = new InnerUtilities.XXHash32())
                 {
                     xxh.ComputeHash(fs);
                     return (int)xxh.HashUInt32;
@@ -1262,6 +1260,7 @@ namespace System.Diagnostics.ProcessExtensions
         }
     }
 
+
     /// <summary>
     /// Provides the extension methods of <see cref="ProcessModule"/> class.
     /// </summary>
@@ -1275,12 +1274,18 @@ namespace System.Diagnostics.ProcessExtensions
         public static int GetXXHash(this ProcessModule module) => ProcessModuleAlter.GetModuleHash(module.FileName);
     }
 
-
-
-
-    internal static class Utilities
+    internal static class InnerUtilities
     {
         public const int INFINITE_INT = -1;
+
+        public static readonly NativeMethods.SysInfo SystemInfo = new NativeMethods.SysInfo();
+
+
+        static InnerUtilities()
+        {
+            NativeMethods.GetSystemInfo(SystemInfo);
+        }
+
 
         public static Process GetProcessByWindow(string windowName, string windowClass)
         {
@@ -1411,11 +1416,27 @@ namespace System.Diagnostics.ProcessExtensions
 
         }
 
-
-        public static IntPtr AllocMemory(Process process, IntPtr address, int size)
+        public static IntPtr AllocMemory(ProcessPlugin plugin, IntPtr address, int size)
         {
-            var hr = new HandleRef(process, process.Handle);
-            var result = NativeMethods.VirtualAllocEx(hr, address, new IntPtr(size), NativeMethods.AllocationOption.Commit, NativeMethods.MemoryProtection.ExecuteReadWrite);
+            NativeMethods.AllocationOption options = NativeMethods.AllocationOption.Commit;
+            if (address != IntPtr.Zero)
+            {
+                if (!plugin.Is64BitProcess)
+                {
+                    address = IntPtr.Zero;
+                }
+                else
+                {
+                    address = ScanNearAddress(plugin, address, size);
+                    if (address != IntPtr.Zero)
+                    {
+                        options |= NativeMethods.AllocationOption.Reserve;
+                    }
+                }
+            }
+
+            var hr = new HandleRef(plugin.BaseProcess, plugin.BaseProcess.Handle);
+            var result = NativeMethods.VirtualAllocEx(hr, address, new IntPtr(size), options, NativeMethods.MemoryProtection.ExecuteReadWrite);
             if (result == IntPtr.Zero)
             {
                 throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -1433,7 +1454,6 @@ namespace System.Diagnostics.ProcessExtensions
             catch { }
         }
 
-
         public static IntPtr ScanByteArray(Process process, byte[] pattern, IntPtr addressStart, IntPtr addressEnd, MemoryProtectionFilter filter)
         {
             var hr = new HandleRef(process, process.Handle);
@@ -1444,7 +1464,7 @@ namespace System.Diagnostics.ProcessExtensions
                 var miSize = NativeMethods.MemoryBasicInfo.Size;
                 while (address.ToPointer() < addressEnd.ToPointer())
                 {
-                    if (!NativeMethods.VirtualQueryEx(hr, address, ref memInfo, miSize))
+                    if (!NativeMethods.VirtualQueryEx(hr, address, memInfo, miSize))
                     {
                         return IntPtr.Zero;
                     }
@@ -1464,6 +1484,89 @@ namespace System.Diagnostics.ProcessExtensions
                 }
             }
             return IntPtr.Zero;
+        }
+
+        private static IntPtr ScanNearAddress(ProcessPlugin plugin, IntPtr addressToRef, int size)
+        {
+            var hr = new HandleRef(plugin.BaseProcess, plugin.BaseProcess.Handle);
+
+            var minMem = SystemInfo.MinimumApplicationAddress.ToInt64();
+            var maxMem = plugin._maxMemory.ToInt64();
+
+
+            var minAddr = addressToRef.ToInt64() - 0x70000000;
+            var maxAddr = addressToRef.ToInt64() + 0x70000000;
+
+            if (minAddr > maxMem || minAddr < minMem) minAddr = minMem;
+
+            if (maxAddr < minMem || maxAddr > maxMem) maxAddr = maxMem;
+
+            var nowRef = minAddr;
+
+            var targetAddr = addressToRef.ToInt64();
+            var allocGranularity = SystemInfo.AllocationGranularity;
+            var lastResult = 0L;
+
+            var memInfo = new NativeMethods.MemoryBasicInfo();
+            var miSize = NativeMethods.MemoryBasicInfo.Size;
+
+            unsafe
+            {
+                while (NativeMethods.VirtualQueryEx(hr, new IntPtr(nowRef), memInfo, miSize))
+                {
+                    var memBase = memInfo.BaseAddress.ToInt64();
+
+                    if (memBase > maxAddr) break;
+
+                    var regionSize = memInfo.RegionSize.ToInt64();
+
+                    if (memInfo.State == NativeMethods.MemoryState.Free &&
+                        regionSize > size)
+                    {
+                        var x = memBase;
+                        var baseleft = memBase % allocGranularity;
+
+                        if (baseleft != 0)
+                        {
+                            var offset = allocGranularity - baseleft;
+                            var tof = regionSize - offset;
+                            if (tof >= size)
+                            {
+                                x += offset;
+                                if (x < targetAddr)
+                                {
+                                    x += tof - size;
+                                    if (x > targetAddr) x = targetAddr;
+                                    x -= x % allocGranularity;
+                                }
+                                if (Math.Abs(x - targetAddr) < Math.Abs(lastResult - targetAddr)) lastResult = x;
+                            }
+                        }
+                        else
+                        {
+                            if (x < targetAddr)
+                            {
+                                x += regionSize - size;
+                                if (x > targetAddr) x = targetAddr;
+                                x -= x % allocGranularity;
+                            }
+                            if (Math.Abs(x - targetAddr) < Math.Abs(lastResult - targetAddr)) lastResult = x;
+                        }
+                    }
+
+                    var regionLeft = regionSize % allocGranularity;
+
+                    if (regionLeft != 0) regionSize += allocGranularity - regionLeft;
+
+                    var oldRef = nowRef;
+                    nowRef = memBase + regionSize;
+                    if (nowRef > maxAddr || oldRef > nowRef)
+                    {
+                        break;
+                    }
+                }
+            }
+            return new IntPtr(lastResult);
         }
 
         public static RemoteCallState CallRemoteFunc(Process process, IntPtr address, int timeOut)
@@ -1501,6 +1604,7 @@ namespace System.Diagnostics.ProcessExtensions
                 return new RemoteCallState(succeed, Msg, ex);
             }
         }
+
         private static int QuickSearch(byte[] source, byte[] pattern)
         {
             var sourceLen = source.Length;
@@ -1539,7 +1643,7 @@ namespace System.Diagnostics.ProcessExtensions
 
         private unsafe delegate bool AccMemDel(HandleRef hProcess, IntPtr lpBaseAddress, void* lpBuffer, IntPtr nSize, out IntPtr lpNumberOfBytes);
 
-        [CodeAnalysis.SuppressMessage("Microsoft.Interoperability", "CA1404:CallGetLastErrorImmediatelyAfterPInvoke")]
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Interoperability", "CA1404:CallGetLastErrorImmediatelyAfterPInvoke")]
         private unsafe static void AccessMemory(Process process, IntPtr address, [In] void* data, IntPtr size, AccMemDel action)
         {
             var hr = new HandleRef(process, process.Handle);
@@ -1873,6 +1977,9 @@ namespace System.Diagnostics.ProcessExtensions
                 [In, Out] ref int lpcbNeeded,
                 ModuleFilter dwFilterFlag);
 
+            [DllImport("msvcrt.dll", EntryPoint = "memcmp", CallingConvention = CallingConvention.Cdecl)]
+            public static extern int Memcmp(byte[] b1, byte[] b2, int count);
+
 
             [DllImport("psapi.dll", CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Winapi, SetLastError = true)]
             public static extern int GetModuleBaseName(HandleRef hProcess, IntPtr hModule, [In, Out] StringBuilder lpBaseName, int nSize);
@@ -1903,10 +2010,10 @@ namespace System.Diagnostics.ProcessExtensions
             [return: MarshalAs(UnmanagedType.Bool)]
             public static extern bool VirtualFreeEx(HandleRef hProcess, IntPtr lpAddress, [MarshalAs(UnmanagedType.SysInt)] IntPtr nSize, FreeOption dwFreeType);
 
-            [CodeAnalysis.SuppressMessage("Microsoft.Portability", "CA1901:PInvokeDeclarationsShouldBePortable", MessageId = "return")]
+            [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Portability", "CA1901:PInvokeDeclarationsShouldBePortable", MessageId = "return")]
             [DllImport("kernel32.dll", SetLastError = false, CallingConvention = CallingConvention.Winapi)]
             [return: MarshalAs(UnmanagedType.Bool)]
-            public static extern bool VirtualQueryEx(HandleRef hProcess, IntPtr lpAddress, [In, Out] ref MemoryBasicInfo lpBuffer, IntPtr dwLength);
+            public static extern bool VirtualQueryEx(HandleRef hProcess, IntPtr lpAddress, [In] MemoryBasicInfo lpBuffer, IntPtr dwLength);
 
             [DllImport("kernel32.dll", SetLastError = true, CallingConvention = CallingConvention.Winapi)]
             public unsafe static extern SafeWaitHandle CreateRemoteThread(HandleRef hProcess, IntPtr lpThreadAttributes, IntPtr dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, ThreadCreationFlags dwCreationFlags, out int threadID);
@@ -1922,6 +2029,8 @@ namespace System.Diagnostics.ProcessExtensions
             [return: MarshalAs(UnmanagedType.Bool)]
             public static extern bool IsWow64Process(HandleRef hProcess, [Out] out bool Wow64Process);
 
+            [DllImport("kernel32", SetLastError = true)]
+            public static extern void GetSystemInfo(SysInfo lpSystemInfo);
 
             public const int ERROR_NOACCESS = 0x3E6;
 
@@ -1953,7 +2062,7 @@ namespace System.Diagnostics.ProcessExtensions
             /// Contains information about a range of pages in the virtual address space of a process. 
             /// </summary>
             [StructLayout(LayoutKind.Sequential)]
-            public readonly struct MemoryBasicInfo
+            public class MemoryBasicInfo
             {
                 /// <summary>
                 /// The base address of the region of pages.
@@ -1969,7 +2078,7 @@ namespace System.Diagnostics.ProcessExtensions
                 /// <summary>
                 /// The memory protection option when the region was initially allocated. 
                 /// </summary>
-                public MemoryProtection AllocationProtect => IntPtr.Size == 4 ? (MemoryProtection)_Arg1.ToInt32() : (MemoryProtection)(_Arg1.ToInt64() >> 32);
+                public MemoryProtection AllocationProtect => IntPtr.Size == 4 ? (MemoryProtection)_Arg1.ToInt32() : (MemoryProtection)((uint)_Arg1.ToInt32() >> 32);
 
                 /// <summary>
                 /// The size of the region beginning at the base address in which all pages have identical attributes, in bytes.
@@ -1993,7 +2102,7 @@ namespace System.Diagnostics.ProcessExtensions
                 /// <summary>
                 /// The type of pages in the region. The following types are defined.
                 /// </summary>
-                public MemoryType Type => IntPtr.Size == 4 ? (MemoryType)_Arg1.ToInt32() : (MemoryType)(_Arg1.ToInt64() >> 4);
+                public MemoryType Type => IntPtr.Size == 4 ? (MemoryType)_Arg1.ToInt32() : (MemoryType)((ulong)_Arg1.ToInt64() >> 4);
 
                 public static readonly IntPtr Size = new IntPtr(Marshal.SizeOf<MemoryBasicInfo>());
 
@@ -2187,12 +2296,52 @@ namespace System.Diagnostics.ProcessExtensions
                 WAIT_FAILED = 0xFFFFFFFF
             }
 
+            [StructLayout(LayoutKind.Sequential, Pack = 2)]
+            public sealed class SysInfo
+            {
+                private readonly uint OemId;
+                public ProcessorArchitecture ProcessorType => (ProcessorArchitecture)(OemId >> 16);
+                public ushort Reserved => (ushort)(OemId & 0xFFFF);
+
+                public readonly int PageSize;
+
+                public readonly IntPtr MinimumApplicationAddress;
+
+                public readonly IntPtr MaximumApplicationAddress;
+
+                public readonly IntPtr ActiveProcessorMask;
+
+                public readonly int NumberOfProcessors;
+
+                public readonly ProcessorType OrgProcessorType;
+
+                public readonly int AllocationGranularity;
+
+                public readonly short ProcessorLevel;
+
+                public readonly short ProcessorRevision;
+            }
+
+            public enum ProcessorArchitecture : ushort
+            {
+                PROCESSOR_ARCHITECTURE_AMD64 = 9,
+                PROCESSOR_ARCHITECTURE_ARM = 5,
+                PROCESSOR_ARCHITECTURE_ARM64 = 12,
+                PROCESSOR_ARCHITECTURE_IA64 = 6,
+                PROCESSOR_ARCHITECTURE_INTEL = 0,
+                PROCESSOR_ARCHITECTURE_UNKNOWN = 0xFFFF
+            }
+
+            public enum ProcessorType : uint
+            {
+                PROCESSOR_INTEL_386 = 386,
+                PROCESSOR_INTEL_486 = 486,
+                PROCESSOR_INTEL_PENTIUM = 586,
+                PROCESSOR_INTEL_IA64 = 2200,
+                PROCESSOR_AMD_X8664 = 8664,
+            }
+
         }
     }
 
-
-
-
-
 }
-
