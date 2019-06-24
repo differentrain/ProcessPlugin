@@ -41,7 +41,8 @@ IntPtr codeAddress = plugin.ScanBytes(new byte[] { 1, 2, 3 });
 // allocated 1kb memory.
 IntPtr address1 = plugin.AllocatedMemories.Allocate(1024);
 
-IntPtr address2 = plugin.AllocatedMemories.Allocate(2048);
+// allocated 2kb memory, whose address is near the 'IntPtr.Zero'.
+IntPtr address2 = plugin.AllocatedMemories.Allocate(IntPtr.Zero,2048);
 
 plugin.AllocatedMemories.Free(address1);
             
