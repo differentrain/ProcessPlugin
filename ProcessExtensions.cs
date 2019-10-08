@@ -128,7 +128,7 @@ namespace System.Diagnostics.ProcessExtensions
         /// <param name="leaveOpen"><c>true</c> to leave the <see cref="Process"/> object open after disposing the <see cref="ProcessInfo"/> object; otherwise, <c>false.</c></param>
         public ProcessPlugin(Process process, bool leaveOpen)
         {
-            BaseProcess = process ?? throw new ArgumentNullException("process");
+            BaseProcess = process ?? throw new ArgumentNullException(nameof(process));
             _leaveOpen = leaveOpen;
             _maxMemory = Is64BitProcess ?
                         InnerUtilities.SystemInfo.MaximumApplicationAddress :
@@ -454,10 +454,12 @@ namespace System.Diagnostics.ProcessExtensions
         }
         #endregion
 
+#pragma warning disable CA1034 // Nested types should not be visible
         /// <summary>
         /// A class provieds some advanced features to get the process infomation.
         /// </summary>
         public sealed class AdvancedFeature
+#pragma warning restore CA1034 // Nested types should not be visible
         {
             private static readonly byte[] _Asmcode64 = new byte[]
             {
@@ -739,11 +741,13 @@ namespace System.Diagnostics.ProcessExtensions
                             _plugin.CallRemoteFunction(_allocMem, 20000);
                             _injected = true;
                         }
+#pragma warning disable CA1031 // Do not catch general exception types
                         catch
                         {
                             InnerUtilities.ReleaseMemory(_plugin.BaseProcess, _allocMem);
                             _injected = false;
                         }
+#pragma warning restore CA1031 // Do not catch general exception types
                     }
                     else
                     {
@@ -770,10 +774,12 @@ namespace System.Diagnostics.ProcessExtensions
                         }
                         return true;
                     }
+#pragma warning disable CA1031 // Do not catch general exception types
                     catch
                     {
                         return false;
                     }
+#pragma warning restore CA1031 // Do not catch general exception types
 
                 }
             }
@@ -791,12 +797,12 @@ namespace System.Diagnostics.ProcessExtensions
                 var mBytes = GetStringBytes(moduleName, Encoding.Unicode, false);
                 if (mBytes == null)
                 {
-                    throw new ArgumentException("Invalid moduleName.", "moduleName");
+                    throw new ArgumentException("Invalid moduleName.", nameof(moduleName));
                 }
                 var fBytes = GetStringBytes(functionName, Encoding.ASCII, false);
                 if (fBytes == null)
                 {
-                    throw new ArgumentException("Invalid functionName.", "functionName");
+                    throw new ArgumentException("Invalid functionName.", nameof(functionName));
                 }
                 _plugin.WriteData(_allocMem + _addrModuleNameOffset, mBytes);
                 _plugin.WriteData(_allocMem + _addrFunctionNameOffset, fBytes);
@@ -945,7 +951,7 @@ namespace System.Diagnostics.ProcessExtensions
                 var secondByes = GetStringBytes(memberName, Encoding.ASCII, false);
                 if (secondByes == null)
                 {
-                    throw new ArgumentException("Invalid memberName.", "memberName");
+                    throw new ArgumentException("Invalid memberName.", nameof(memberName));
                 }
                 return firstBytes.Concat(secondByes).ToArray();
             }
@@ -953,19 +959,19 @@ namespace System.Diagnostics.ProcessExtensions
             private byte[] EnsureAsmAndNsNameAndClsName(MonoAssembly assembly, string namespaceName, string className)
             {
                 EnsureMono();
-                if (assembly == null) throw new ArgumentNullException("assembly");
+                if (assembly == null) throw new ArgumentNullException(nameof(assembly));
 
                 var nsBytes = GetStringBytes(namespaceName, Encoding.ASCII, true);
                 if (nsBytes == null)
                 {
-                    throw new ArgumentException("Invalid namespaceName.", "namespaceName");
+                    throw new ArgumentException("Invalid namespaceName.", nameof(namespaceName));
                 }
 
                 var cBytes = GetStringBytes(className, Encoding.ASCII, false);
 
                 if (cBytes == null)
                 {
-                    throw new ArgumentException("Invalid className.", "className");
+                    throw new ArgumentException("Invalid className.", nameof(className));
                 }
 
                 return nsBytes.Concat(cBytes).ToArray();
@@ -994,10 +1000,12 @@ namespace System.Diagnostics.ProcessExtensions
                     code.GetBytes(str, 0, str.Length, result, 0);
                     return result;
                 }
+#pragma warning disable CA1031 // Do not catch general exception types
                 catch
                 {
                     return null;
                 }
+#pragma warning restore CA1031 // Do not catch general exception types
             }
 
             #region IDisposable Support
@@ -1022,10 +1030,12 @@ namespace System.Diagnostics.ProcessExtensions
 
 
 
+#pragma warning disable CA1034 // Nested types should not be visible
         /// <summary>
         /// Represents the allcated memories in the target process.
         /// </summary>
         public sealed class AllocatedMemoryCollection : IEnumerable<IntPtr>
+#pragma warning restore CA1034 // Nested types should not be visible
         {
             #region properties & fields
 
@@ -1158,7 +1168,9 @@ namespace System.Diagnostics.ProcessExtensions
                 {
                     if (!disposedValue) FreeAll();
                 }
+#pragma warning disable CA1031 // Do not catch general exception types
                 catch { }
+#pragma warning restore CA1031 // Do not catch general exception types
                 finally
                 {
                     _list = null;
@@ -1179,10 +1191,12 @@ namespace System.Diagnostics.ProcessExtensions
     }
 
 
+#pragma warning disable CA1027 // Mark enums with FlagsAttribute
     /// <summary>
     /// Represents which protection type of memory should be searched.
     /// </summary>
     public enum MemoryProtectionFilter
+#pragma warning restore CA1027 // Mark enums with FlagsAttribute
     {
         /// <summary>
         ///  Not specified.
@@ -1908,7 +1922,7 @@ namespace System.Diagnostics.ProcessExtensions
 
         public static ProcessModuleAlter GetModuleByName(Process process, string moduleName)
         {
-            if (string.IsNullOrWhiteSpace(moduleName)) throw new ArgumentException("moduleName is null or empty.", "moduleName");
+            if (string.IsNullOrWhiteSpace(moduleName)) throw new ArgumentException("moduleName is null or empty.", nameof(moduleName));
 
             var hr = new HandleRef(process, process.Handle);
 
@@ -2044,7 +2058,9 @@ namespace System.Diagnostics.ProcessExtensions
                 var hr = new HandleRef(process, process.Handle);
                 NativeMethods.VirtualFreeEx(hr, address, IntPtr.Zero, NativeMethods.FreeOption.Release);
             }
+#pragma warning disable CA1031 // Do not catch general exception types
             catch { }
+#pragma warning restore CA1031 // Do not catch general exception types
         }
 
         public static IntPtr ScanByteArray(Process process, byte[] pattern, Func<byte[], byte[], int> checker, IntPtr addressStart, IntPtr addressEnd, MemoryProtectionFilter filter)
@@ -2240,7 +2256,7 @@ namespace System.Diagnostics.ProcessExtensions
 
         private static void EnsureDateIndexCount<T>(T[] data, int startIndex, int count)
         {
-            if (data == null || data.Length < 1) throw new ArgumentException("data is null or empty.", "data");
+            if (data == null || data.Length < 1) throw new ArgumentException("data is null or empty.", nameof(data));
             if (count < 1 || startIndex < 0 || data.Length - startIndex < count)
             {
                 throw new ArgumentOutOfRangeException("startIndex is less than 0 or count is less than 1 or data length minus startIndex is less than count.");
@@ -2441,7 +2457,9 @@ namespace System.Diagnostics.ProcessExtensions
         {
             private static readonly ConcurrentBag<StringBuilder> _Pool;
 
+#pragma warning disable CA1810 // Initialize reference type static fields inline
             static StringBuilderPool() => _Pool = new ConcurrentBag<StringBuilder>();
+#pragma warning restore CA1810 // Initialize reference type static fields inline
 
             public static StringBuilder Rent() => _Pool.TryTake(out var obj) ? obj : new StringBuilder(1024);
 
@@ -2456,7 +2474,9 @@ namespace System.Diagnostics.ProcessExtensions
         {
             private static readonly ConcurrentBag<ModuleInfo> _Pool;
 
+#pragma warning disable CA1810 // Initialize reference type static fields inline
             static ModuleInfoPool() => _Pool = new ConcurrentBag<ModuleInfo>();
+#pragma warning restore CA1810 // Initialize reference type static fields inline
 
             public static ModuleInfo Rent() => _Pool.TryTake(out var obj) ? obj : new ModuleInfo();
 
@@ -2864,4 +2884,3 @@ namespace System.Diagnostics.ProcessExtensions
     }
 
 }
-
