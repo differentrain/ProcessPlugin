@@ -49,6 +49,8 @@ plugin.AllocatedMemories.Free(address1);
 //free address2.
 plugin.AllocatedMemories.FreeAt(0);
 ```
+**remark** : `ProcessPlugin.ScanBytes` now supports wildcards, see detail: https://github.com/differentrain/YYProject.BytesSearch
+
 ### Process module
 
 ```
