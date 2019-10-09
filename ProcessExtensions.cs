@@ -1385,24 +1385,17 @@ namespace System.Diagnostics.ProcessExtensions
     /// <summary>
     /// Represents a byte array finder with the immutable pattern.
     /// </summary>
+    /// <remarks>
+    /// Rules For String Pattern
+    /// <para>Any space character (0x20) should be ignored.</para>
+    /// <para>A byte number must be expressed as two-digit hexadecimal number, excludes any prefix or postfix.</para>
+    /// <para>Question mark (0x3F) represents wildcard and must be in pairs, or it has a leading or trailing hexadecimal number.</para>
+    /// </remarks>
     public class BytesFinder
     {
 
-        private static readonly ConcurrentBag<int[]> _MoveTablePool = new ConcurrentBag<int[]>();
 
-        #region expressions
-        private static readonly ParameterExpression _ExpParamSource = Expression.Parameter(typeof(byte[]), "source");
-        private static readonly ParameterExpression _ExpParamSourceIndex = Expression.Parameter(typeof(int), "sourceIndex");
-        private static readonly ParameterExpression _ExpParamPatternLength = Expression.Parameter(typeof(int), "patternLength");
-        private static readonly ParameterExpression _ExpUnusedParamPattern = Expression.Parameter(typeof(byte[]), "unusedPattern");
-        private static readonly BinaryExpression _ExpArrayItemIterator = Expression.ArrayIndex(_ExpParamSource, Expression.PostIncrementAssign(_ExpParamSourceIndex));
-        private static readonly ConstantExpression _ExpTrue = Expression.Constant(true, typeof(bool));
-        #endregion
-
-        private readonly byte[] _mBytesPattern;
-        private readonly Func<byte[], byte[], int, int, bool> _mCompareFunc;
-        private readonly int[] _mMoveTable;
-        private readonly int _mPatternLength;
+        private readonly PatternInfo _mPattInfo;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="BytesFinder"/> class for the specified bytes pattern.
@@ -1411,11 +1404,8 @@ namespace System.Diagnostics.ProcessExtensions
         /// <exception cref="ArgumentException"><paramref name="pattern"/> is null or empty.</exception>
         public BytesFinder(byte[] pattern)
         {
-            Ensure_pattern(pattern);
-            _mBytesPattern = pattern;
-            _mMoveTable = InitializeTable(pattern);
-            _mCompareFunc = CompareCore;
-            _mPatternLength = pattern.Length;
+            if (pattern == null || pattern.Length == 0) throw new ArgumentException("pattern is null or empty.", nameof(pattern));
+            _mPattInfo = new PatternInfo(pattern);
         }
 
         /// <summary>
@@ -1431,79 +1421,7 @@ namespace System.Diagnostics.ProcessExtensions
         public BytesFinder(string pattern)
         {
             if (pattern == null) throw new ArgumentNullException(nameof(pattern), "pattern is null.");
-            pattern = pattern.Replace(" ", string.Empty); //remove placeholder
-            var strLen = pattern.Length;
-            if (strLen == 0 || (strLen & 1) == 1) throw new FormatException("The length of pattern is 0 or not equal to this value division by 2.");
-            _mPatternLength = strLen >> 1;
-            var maxMove = _mPatternLength - 1;
-            _mMoveTable = GetTableFormBag(_mPatternLength);
-
-            Expression exp = _ExpTrue;
-
-            #region  generates move table and comparison expression
-            unsafe
-            {
-                fixed (int* next = _mMoveTable)
-                {
-                    fixed (char* patt = pattern)
-                    {
-                        var idx = 0;
-                        while (idx < strLen)
-                        {
-                            var badMove = maxMove - (idx >> 1);
-                            var currentChar = patt[idx++];
-                            var nextChar = patt[idx++];
-                            int nextDigit;
-                            if (currentChar == '?')
-                            {
-                                if (nextChar == '?') //??
-                                {
-                                    SetMultiBadMove(next, badMove, 0, 1); //update move table
-                                                                          //update expression
-                                    exp = Expression.AndAlso(
-                                        exp,
-                                        Expression.Block(
-                                            Expression.PreIncrementAssign(_ExpParamSourceIndex),
-                                            _ExpTrue));
-                                }
-                                else //?a
-                                {
-                                    nextDigit = GetHexDigit(nextChar);
-                                    SetMultiBadMove(next, badMove, nextDigit, 0x10); //update move table
-                                    exp = MakeExpCmpDigit(exp, nextDigit, 0x0F); //update expression
-                                }
-                            }
-                            else
-                            {
-                                var firstDigit = GetHexDigit(currentChar) << 4;
-
-                                if (nextChar == '?') //a?
-                                {
-                                    SetMultiBadMove(next, badMove, firstDigit, 1); //update move table
-                                    exp = MakeExpCmpDigit(exp, firstDigit, 0xF0); //update expression
-                                }
-                                else //ab
-                                {
-                                    nextDigit = GetHexDigit(nextChar);
-                                    var hexNum = (byte)(firstDigit | nextDigit);
-                                    next[hexNum] = badMove; //update move table
-                                                            //update expression
-                                    exp = Expression.AndAlso(
-                                            exp,
-                                            Expression.Equal(
-                                                _ExpArrayItemIterator,
-                                                Expression.Constant(hexNum, typeof(byte))));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            #endregion
-
-            _mCompareFunc = Expression.Lambda<Func<byte[], byte[], int, int, bool>>(
-                exp, _ExpParamSource, _ExpUnusedParamPattern, _ExpParamSourceIndex, _ExpParamPatternLength)
-                .Compile();
+            _mPattInfo = new PatternInfo(pattern.Replace(" ", string.Empty)); //remove placeholder
         }
 
         #region instance methods
@@ -1516,8 +1434,8 @@ namespace System.Diagnostics.ProcessExtensions
         /// <exception cref="ArgumentException"><paramref name="source"/> is null or empty.</exception>
         public int FindIndexIn(byte[] source)
         {
-            Ensure_source(source);
-            return InnerFindIndex(source, _mBytesPattern, _mMoveTable, _mCompareFunc, _mPatternLength, 0, source.Length);
+            if (source == null || source.Length == 0) throw new ArgumentException("source is null or empty.", nameof(source));
+            return InnerFindIndex(source, in _mPattInfo, 0, source.Length);
         }
 
         /// <summary>
@@ -1536,7 +1454,7 @@ namespace System.Diagnostics.ProcessExtensions
         public int FindIndexIn(byte[] source, int startIndex)
         {
             Ensure_source_startIndex(source, startIndex);
-            return InnerFindIndex(source, _mBytesPattern, _mMoveTable, _mCompareFunc, _mPatternLength, startIndex, source.Length);
+            return InnerFindIndex(source, in _mPattInfo, startIndex, source.Length);
         }
 
         /// <summary>
@@ -1560,7 +1478,7 @@ namespace System.Diagnostics.ProcessExtensions
         public int FindIndexIn(byte[] source, int startIndex, int count)
         {
             Ensure_source_startIndex_count(source, startIndex, count);
-            return InnerFindIndex(source, _mBytesPattern, _mMoveTable, _mCompareFunc, _mPatternLength, startIndex, count);
+            return InnerFindIndex(source, in _mPattInfo, startIndex, count);
         }
 
         #endregion
@@ -1580,9 +1498,13 @@ namespace System.Diagnostics.ProcessExtensions
         /// </exception>
         public static int FindIndex(byte[] source, byte[] pattern)
         {
-            Ensure_source(source);
-            Ensure_pattern(pattern);
-            return RentTableAndFindIndex(source, pattern, 0, source.Length);
+            if (source == null || source.Length == 0) throw new ArgumentException("source is null or empty.", nameof(source));
+            if (pattern == null || pattern.Length == 0) throw new ArgumentException("pattern is null or empty.", nameof(pattern));
+            using (var pattInfo = new PatternInfo(pattern))
+            {
+                return InnerFindIndex(source, in pattInfo, 0, source.Length);
+            }
+
         }
 
         /// <summary>
@@ -1605,9 +1527,12 @@ namespace System.Diagnostics.ProcessExtensions
         /// </exception>
         public static int FindIndex(byte[] source, byte[] pattern, int startIndex)
         {
-            Ensure_pattern(pattern);
+            if (pattern == null || pattern.Length == 0) throw new ArgumentException("pattern is null or empty.", nameof(pattern));
             Ensure_source_startIndex(source, startIndex);
-            return RentTableAndFindIndex(source, pattern, startIndex, source.Length);
+            using (var pattInfo = new PatternInfo(pattern))
+            {
+                return InnerFindIndex(source, in pattInfo, startIndex, source.Length);
+            }
         }
 
         /// <summary>
@@ -1635,9 +1560,12 @@ namespace System.Diagnostics.ProcessExtensions
         /// </exception>
         public static int FindIndex(byte[] source, byte[] pattern, int startIndex, int count)
         {
-            Ensure_pattern(pattern);
+            if (pattern == null || pattern.Length == 0) throw new ArgumentException("pattern is null or empty.", nameof(pattern));
             Ensure_source_startIndex_count(source, startIndex, count);
-            return RentTableAndFindIndex(source, pattern, startIndex, count);
+            using (var pattInfo = new PatternInfo(pattern))
+            {
+                return InnerFindIndex(source, in pattInfo, startIndex, count);
+            }
         }
 
 
@@ -1656,7 +1584,7 @@ namespace System.Diagnostics.ProcessExtensions
         /// </exception>
         public static int FindIndex(byte[] source, string pattern)
         {
-            Ensure_source(source);
+            if (source == null || source.Length == 0) throw new ArgumentException("source is null or empty.", nameof(source));
             return (new BytesFinder(pattern)).FindIndexIn(source);
         }
 
@@ -1720,49 +1648,14 @@ namespace System.Diagnostics.ProcessExtensions
 
         #endregion
 
-        #region private static methods
-
-        private static int RentTableAndFindIndex(byte[] source, byte[] pattern, int startIndex, int count)
+        private static int InnerFindIndex(byte[] source, in PatternInfo pattern, int startIndex, int count)
         {
-            var moveTable = InitializeTable(pattern);
-            try
-            {
-                return InnerFindIndex(source, pattern, moveTable, CompareCore, pattern.Length, startIndex, count);
-            }
-            finally
-            {
-                _MoveTablePool.Add(moveTable);
-            }
-        }
-
-        private static int[] InitializeTable(byte[] pattern)
-        {
-            var pattLen = pattern.Length;
-            var pattMaxIdx = pattLen - 1;
-            var moveTable = GetTableFormBag(pattLen);
-            unsafe
-            {
-                fixed (int* next = moveTable)
-                {
-                    fixed (byte* patt = pattern)
-                    {
-                        for (int i = 0; i < pattLen; i++)
-                        {
-                            next[patt[i]] = pattMaxIdx - i;
-                        }
-                        return moveTable;
-                    }
-                }
-            }
-        }
-
-        private static int InnerFindIndex(byte[] source, byte[] pattern, int[] moveTable, Func<byte[], byte[], int, int, bool> compareFunc, int patternLength, int startIndex, int count)
-        {
+            var patternLength = pattern.PatternLength;
             var pattMaxIdx = patternLength - 1;
             var maxLen = count - patternLength + 1;
             unsafe
             {
-                fixed (int* next = moveTable)
+                fixed (int* next = pattern.MoveTable)
                 {
                     fixed (byte* src = source)
                     {
@@ -1772,10 +1665,8 @@ namespace System.Diagnostics.ProcessExtensions
                             if (mov < patternLength)
                             {
                                 startIndex += mov;
-
-                                if (compareFunc(source, pattern, startIndex, patternLength)) return startIndex;
+                                if (pattern.CheckWithPattern(source, startIndex)) return startIndex;
                                 ++startIndex;
-                                continue;
                             }
                             else
                             {
@@ -1788,97 +1679,222 @@ namespace System.Diagnostics.ProcessExtensions
             }
         }
 
-        private static bool CompareCore(byte[] source, byte[] pattern, int startIndex, int patternLength)
-        {
-            unsafe
-            {
-                fixed (byte* src = source, patt = pattern)
-                {
-                    for (var i = 0; i < patternLength; i++)
-                    {
-                        if (src[startIndex + i] != patt[i])
-                        {
-                            return false;
-                        }
-                    }
-                    return true;
-                }
-            }
-        }
-
-        private static void Ensure_source(byte[] source)
-        {
-            if (source == null || source.Length == 0) throw new ArgumentException("source is null or empty.", nameof(source));
-        }
-
-        private static void Ensure_pattern(byte[] pattern)
-        {
-            if (pattern == null || pattern.Length == 0) throw new ArgumentException("pattern is null or empty.", nameof(pattern));
-        }
-
         private static void Ensure_source_startIndex(byte[] source, int startIndex)
         {
-            Ensure_source(source);
+            if (source == null || source.Length == 0) throw new ArgumentException("source is null or empty.", nameof(source));
             if (startIndex < 0) throw new ArgumentOutOfRangeException(nameof(startIndex), "startIndex is less than 0.");
             if (startIndex >= source.Length) throw new ArgumentOutOfRangeException(nameof(startIndex), "startIndex is greater than or equal to the length of source.");
         }
 
         private static void Ensure_source_startIndex_count(byte[] source, int startIndex, int count)
         {
-            Ensure_source_startIndex(source, startIndex);
+            if (source == null || source.Length == 0) throw new ArgumentException("source is null or empty.", nameof(source));
+            if (startIndex < 0) throw new ArgumentOutOfRangeException(nameof(startIndex), "startIndex is less than 0.");
+            if (startIndex >= source.Length) throw new ArgumentOutOfRangeException(nameof(startIndex), "startIndex is greater than or equal to the length of source.");
             if (count <= 0) throw new ArgumentOutOfRangeException(nameof(startIndex), "count is less than or equal to 0.");
             if (count > source.Length - startIndex) throw new ArgumentOutOfRangeException(nameof(count), "count is greater than the length of source minus startIndex.");
         }
 
-        private static int[] GetTableFormBag(int patternLength)
+        private readonly struct PatternInfo : IDisposable
         {
-            var result = _MoveTablePool.TryTake(out var item) ? item : new int[256];
-            unsafe
+
+            private static readonly ConcurrentBag<int[]> _MoveTablePool = new ConcurrentBag<int[]>();
+
+            private delegate bool ComparePatternFunc(byte[] source, byte[] pattern, int index);
+
+            #region expressions
+            private static readonly ParameterExpression _ExpParamSource = Expression.Parameter(typeof(byte[]), "source");
+            private static readonly ParameterExpression _ExpParamIndex = Expression.Parameter(typeof(int), "index");
+            private static readonly Expression _ExpSourceMaxCount = Expression.Subtract(Expression.ArrayLength(_ExpParamSource), _ExpParamIndex);
+
+            private static readonly ParameterExpression _ExpUnusedParamBytesPattern = Expression.Parameter(typeof(byte[]), "unusedBytesPattern");
+            private static readonly BinaryExpression _ExpArrayItemIterator = Expression.ArrayIndex(_ExpParamSource, Expression.PostIncrementAssign(_ExpParamIndex));
+            private static readonly BlockExpression _ExpUnconditionalTrue = Expression.Block(Expression.PreIncrementAssign(_ExpParamIndex), Expression.Constant(true, typeof(bool)));
+            #endregion
+
+            private readonly ComparePatternFunc Comparer;
+
+            public readonly int PatternLength;
+
+            public readonly byte[] BytesPattern;
+
+            public readonly int[] MoveTable;
+
+            public PatternInfo(byte[] pattern)
             {
-                fixed (int* buffer = result)
+                PatternLength = pattern.Length;
+                BytesPattern = pattern;
+                MoveTable = GetTableFormBag(PatternLength);
+                var pattMaxIdx = PatternLength - 1;
+
+                unsafe
                 {
-                    for (int i = 0; i < 256; i++)
+                    fixed (int* next = MoveTable)
                     {
-                        buffer[i] = patternLength;
+                        fixed (byte* patt = pattern)
+                        {
+                            for (int i = 0; i < PatternLength; i++)
+                            {
+                                next[patt[i]] = pattMaxIdx - i;
+                            }
+                        }
+                    }
+                }
+
+                Comparer = new ComparePatternFunc(CompareCore);
+            }
+
+            public PatternInfo(string pattern)
+            {
+                var strLen = pattern.Length;
+                if (strLen == 0 || (strLen & 1) == 1) throw new FormatException("The length of pattern is 0 or not equal to this value division by 2.");
+                var patternLength = strLen >> 1;
+                var maxMove = patternLength - 1;
+                var moveTable = GetTableFormBag(patternLength);
+
+                Expression exp = Expression.LessThanOrEqual(
+                    Expression.Constant(patternLength, typeof(int)),
+                    _ExpSourceMaxCount);
+
+                #region  generates move table and comparison expression
+                unsafe
+                {
+                    fixed (int* next = moveTable)
+                    {
+                        fixed (char* patt = pattern)
+                        {
+                            var iPatt = (int*)patt;
+
+                            var idx = 0;
+                            while (idx < strLen)
+                            {
+                                var badMove = maxMove - (idx >> 1);
+                                var currentChar = patt[idx++];
+                                var nextChar = patt[idx++];
+                                int nextDigit;
+                                if (currentChar == '?')
+                                {
+                                    if (nextChar == '?') //??
+                                    {
+                                        SetMultiBadMove(next, badMove, 0, 1); //update move table
+                                                                              //update expression
+                                        exp = Expression.AndAlso(exp, _ExpUnconditionalTrue);
+                                    }
+                                    else //?a
+                                    {
+                                        nextDigit = GetHexDigit(nextChar);
+                                        SetMultiBadMove(next, badMove, nextDigit, 0x10); //update move table
+                                        exp = MakeExpCmpDigit(exp, nextDigit, 0x0F); //update expression
+                                    }
+                                }
+                                else
+                                {
+                                    var firstDigit = GetHexDigit(currentChar) << 4;
+
+                                    if (nextChar == '?') //a?
+                                    {
+                                        SetMultiBadMove(next, badMove, firstDigit, 1); //update move table
+                                        exp = MakeExpCmpDigit(exp, firstDigit, 0xF0); //update expression
+                                    }
+                                    else //ab
+                                    {
+                                        nextDigit = GetHexDigit(nextChar);
+                                        var hexNum = (byte)(firstDigit | nextDigit);
+                                        next[hexNum] = badMove; //update move table
+                                                                //update expression
+                                        exp = Expression.AndAlso(
+                                                exp,
+                                                Expression.Equal(
+                                                    _ExpArrayItemIterator,
+                                                    Expression.Constant(hexNum, typeof(byte))));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                #endregion
+
+                Comparer = Expression.Lambda<ComparePatternFunc>(
+                    exp, _ExpParamSource, _ExpUnusedParamBytesPattern, _ExpParamIndex)
+                    .Compile();
+
+                PatternLength = patternLength;
+                MoveTable = moveTable;
+                BytesPattern = null;
+            }
+
+            public bool CheckWithPattern(byte[] source, int index) => Comparer(source, BytesPattern, index);
+
+            private static Expression MakeExpCmpDigit(Expression exp, int digit, int mask) => Expression.AndAlso(
+                exp,
+                Expression.Equal(
+                    Expression.And(
+                        _ExpArrayItemIterator,
+                        Expression.Constant((byte)mask, typeof(byte))),
+                    Expression.Constant((byte)digit, typeof(byte))));
+
+            private static bool CompareCore(byte[] source, byte[] pattern, int index)
+            {
+                var length = pattern.Length;
+                unsafe
+                {
+                    fixed (byte* src = source, patt = pattern)
+                    {
+                        for (var i = 0; i < length; i++)
+                        {
+                            if (src[index + i] != patt[i])
+                            {
+                                return false;
+                            }
+                        }
+                        return true;
                     }
                 }
             }
-            return result;
-        }
 
-        private static int GetHexDigit(char number)
-        {
-            if (number >= '0' && number <= '9')
+            private unsafe static void SetMultiBadMove(int* moveTable, int badMove, int start, int step)
             {
-                return number - '0';
+                for (int i = start; i < 256; i += step)
+                {
+                    moveTable[i] = badMove;
+                }
             }
-            else if ((number >= 'a' && number <= 'f') ||
-                     (number >= 'A' && number <= 'F'))
+
+            private static int GetHexDigit(char number)
             {
-                return (number & 7) + 9;     //  'a'=0x61, 'A'=0x41
+                if (number >= '0' && number <= '9')
+                {
+                    return number - '0';
+                }
+                else if ((number >= 'a' && number <= 'f') ||
+                         (number >= 'A' && number <= 'F'))
+                {
+                    return (number & 7) + 9;     //  'a'=0x61, 'A'=0x41
+                }
+                throw new FormatException("Unexpected char in pattern.");
             }
-            throw new FormatException("Unexpected char in pattern.");
-        }
 
-        private unsafe static void SetMultiBadMove(int* moveTable, int badMove, int start, int step)
-        {
-            for (int i = start; i < 256; i += step)
+            private static int[] GetTableFormBag(int patternLength)
             {
-                moveTable[i] = badMove;
+                var result = _MoveTablePool.TryTake(out var item) ? item : new int[256];
+                unsafe
+                {
+                    fixed (int* buffer = result)
+                    {
+                        for (int i = 0; i < 256; i++)
+                        {
+                            buffer[i] = patternLength;
+                        }
+                    }
+                }
+                return result;
+            }
+            public void Dispose()
+            {
+                _MoveTablePool.Add(MoveTable);
             }
         }
-
-        private static Expression MakeExpCmpDigit(Expression exp, int digit, int mask) => Expression.AndAlso(
-            exp,
-            Expression.Equal(
-                Expression.And(
-                    _ExpArrayItemIterator,
-                    Expression.Constant((byte)mask, typeof(byte))),
-                Expression.Constant((byte)digit, typeof(byte))));
-
-
-        #endregion
-
     }
 
     internal static class InnerUtilities
